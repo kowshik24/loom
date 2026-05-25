@@ -52,7 +52,7 @@ jobs:
       - name: Prepare release bundle
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
+          TAG="v${VERSION}"
           ZIP_NAME="localloom-${TAG}.zip"
           (cd dist && zip -r "../${ZIP_NAME}" .)
           echo "TAG=${TAG}" >> "$GITHUB_ENV"
@@ -62,6 +62,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          name: LocalLoom ${{ env.TAG }}
+          name: ${{ env.TAG }}
           generate_release_notes: true
           files: ${{ env.ZIP_NAME }}
