@@ -2,31 +2,33 @@
 
 Chrome MV3 extension for local-first screen recording.
 
+![LocalLoom Logo](./public/loom.png)
+
 ## What is implemented
 
 - Popup quick-start with saved settings:
   - Camera on/off
   - Mic on/off
   - System audio on/off
-  - Countdown (0/3/5)
-  - FPS (15/30/60)
+  - Advanced section for countdown and FPS
 - Recorder window:
   - Start screen capture (`getDisplayMedia`)
   - Optional mic/camera capture
   - Live camera overlay composited into canvas
-  - Camera shape: circle/rectangle
   - Camera drag + size slider during record
   - Pause / Resume / Stop / Cancel
   - Auto-stop when shared screen stream ends
-  - Live annotation tools: pen, highlighter, rectangle, circle, arrow, text
-  - Annotation editing: undo, redo, clear, eraser
+  - Optional advanced settings section (resolution, fps, countdown, camera shape)
+  - Optional annotation section with simple tools: move camera, pen, text, eraser
+  - Annotation editing: undo, redo, clear
   - Cursor spotlight and click ripple emphasis (toggleable)
+  - Recording status badge + keyboard hints
 - Local library page:
   - IndexedDB storage for blob + metadata + thumbnail
   - Search by title
   - Playback preview
   - Rename / Delete
-  - Trim start/end and save back to recording
+  - Trim start/end with safe copy flow (`Save Trim As Copy`) or replace flow (`Replace Original`)
   - Export `.webm`
 - Background service worker:
   - Opens recorder window
