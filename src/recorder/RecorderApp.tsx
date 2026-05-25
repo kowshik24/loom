@@ -54,6 +54,40 @@ const RESOLUTION_MAP = {
   "4k": { w: 3840, h: 2160 }
 } as const;
 
+type CameraMode = "off" | "track-processor" | "video";
+
+interface CameraVideoFrameLike {
+  close: () => void;
+}
+
+interface CameraTrackProcessor {
+  readable: ReadableStream<CameraVideoFrameLike>;
+}
+
+interface CameraDebugSnapshot {
+  mode: CameraMode;
+  trackReadyState: MediaStreamTrackState | "none";
+  trackMuted: boolean;
+  trackEnabled: boolean;
+  videoReadyState: number;
+  videoPaused: boolean;
+  videoCurrentTime: number;
+  grabSuccessCount: number;
+  grabFailureCount: number;
+  frameDeltaMs: number;
+  freezeCount: number;
+  recoveryCount: number;
+  recoveryAttemptCount: number;
+  lastFreezeReason: string;
+  lastFreezeAtMs: number;
+}
+
+const CAMERA_WATCHDOG_INTERVAL_MS = 500;
+const CAMERA_STALL_THRESHOLD_MS = 1200;
+const CAMERA_GRAB_FAIL_THRESHOLD = 6;
+const CAMERA_MAX_RECOVERY_ATTEMPTS = 4;
+const CAMERA_RECOVERY_BACKOFF_MS = 350;
+
 export function RecorderApp() {
   const [settings, setSettings] = useState<RecordingSettings>(defaultRecordingSettings);
   const [status, setStatus] = useState<RecorderStatus>("idle");
@@ -74,13 +108,16 @@ export function RecorderApp() {
   const [hint, setHint] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showTools, setShowTools] = useState(false);
+  const [cameraDebug, setCameraDebug] = useState<CameraDebugSnapshot | null>(null);
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hiddenMediaHostRef = useRef<HTMLDivElement | null>(null);
   const hiddenDisplayVideoRef = useRef<HTMLVideoElement | null>(null);
   const hiddenCameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const rafRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
+  const cameraWatchdogRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
@@ -100,6 +137,33 @@ export function RecorderApp() {
   const clickEmphasisRef = useRef(clickEmphasis);
   const cursorPointRef = useRef<Point>({ x: 0.5, y: 0.5 });
   const clickRipplesRef = useRef<ClickRipple[]>([]);
+  const cameraModeRef = useRef<CameraMode>("off");
+  const cameraTrackReaderRef = useRef<ReadableStreamDefaultReader<CameraVideoFrameLike> | null>(null);
+  const cameraVideoFrameRef = useRef<CameraVideoFrameLike | null>(null);
+  const cameraLoopTokenRef = useRef(0);
+  const cameraLastFrameAtRef = useRef(0);
+  const cameraLastVideoTimeRef = useRef(0);
+  const cameraGrabFailStreakRef = useRef(0);
+  const cameraRecoveryInFlightRef = useRef(false);
+  const cameraRecoveryAttemptsRef = useRef(0);
+  const recordingActiveRef = useRef(false);
+  const cameraDebugRef = useRef<CameraDebugSnapshot>({
+    mode: "off",
+    trackReadyState: "none",
+    trackMuted: false,
+    trackEnabled: false,
+    videoReadyState: 0,
+    videoPaused: true,
+    videoCurrentTime: 0,
+    grabSuccessCount: 0,
+    grabFailureCount: 0,
+    frameDeltaMs: -1,
+    freezeCount: 0,
+    recoveryCount: 0,
+    recoveryAttemptCount: 0,
+    lastFreezeReason: "",
+    lastFreezeAtMs: 0
+  });
 
   useEffect(() => {
     annotationsRef.current = annotations;
@@ -200,24 +264,262 @@ export function RecorderApp() {
     return { width: preset.w, height: preset.h };
   }
 
+  function closeCameraFrame() {
+    if (!cameraVideoFrameRef.current) return;
+    cameraVideoFrameRef.current.close();
+    cameraVideoFrameRef.current = null;
+  }
+
+  function createDebugSnapshot(override: Partial<CameraDebugSnapshot> = {}): CameraDebugSnapshot {
+    const track = cameraStreamRef.current?.getVideoTracks()[0] ?? null;
+    const camVideo = hiddenCameraVideoRef.current;
+    const now = performance.now();
+    const lastFrame = cameraLastFrameAtRef.current;
+    const frameDeltaMs = lastFrame > 0 ? Math.round(now - lastFrame) : -1;
+    return {
+      ...cameraDebugRef.current,
+      mode: cameraModeRef.current,
+      trackReadyState: track?.readyState ?? "none",
+      trackMuted: track?.muted ?? false,
+      trackEnabled: track?.enabled ?? false,
+      videoReadyState: camVideo?.readyState ?? 0,
+      videoPaused: camVideo?.paused ?? true,
+      videoCurrentTime: Number((camVideo?.currentTime ?? 0).toFixed(3)),
+      frameDeltaMs,
+      ...override
+    };
+  }
+
+  function refreshCameraDebug(override: Partial<CameraDebugSnapshot> = {}) {
+    const snapshot = createDebugSnapshot(override);
+    cameraDebugRef.current = snapshot;
+    setCameraDebug(snapshot);
+    return snapshot;
+  }
+
+  function attachHiddenVideo(video: HTMLVideoElement) {
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.style.width = "1px";
+    video.style.height = "1px";
+    video.style.opacity = "0.01";
+    video.style.pointerEvents = "none";
+    const host = hiddenMediaHostRef.current;
+    if (host) {
+      host.appendChild(video);
+    }
+  }
+
+  async function swapCameraVideoStream(stream: MediaStream) {
+    let camVideo = hiddenCameraVideoRef.current;
+    if (!camVideo) {
+      camVideo = document.createElement("video");
+      hiddenCameraVideoRef.current = camVideo;
+      attachHiddenVideo(camVideo);
+    }
+    camVideo.srcObject = stream;
+    await camVideo.play();
+    cameraLastVideoTimeRef.current = camVideo.currentTime;
+  }
+
+  function stopCameraSourcePipeline() {
+    cameraLoopTokenRef.current += 1;
+    cameraGrabFailStreakRef.current = 0;
+    closeCameraFrame();
+    if (cameraTrackReaderRef.current) {
+      void cameraTrackReaderRef.current.cancel().catch(() => {});
+      cameraTrackReaderRef.current = null;
+    }
+  }
+
+  async function startTrackProcessorLoop(
+    loopToken: number,
+    reader: ReadableStreamDefaultReader<CameraVideoFrameLike>
+  ) {
+    try {
+      while (recordingActiveRef.current && loopToken === cameraLoopTokenRef.current && cameraModeRef.current === "track-processor") {
+        try {
+          const { value, done } = await reader.read();
+          if (done) return;
+          if (!value) continue;
+          if (loopToken !== cameraLoopTokenRef.current || cameraModeRef.current !== "track-processor") {
+            value.close();
+            return;
+          }
+          closeCameraFrame();
+          cameraVideoFrameRef.current = value;
+          cameraLastFrameAtRef.current = performance.now();
+          cameraGrabFailStreakRef.current = 0;
+          cameraDebugRef.current.grabSuccessCount += 1;
+        } catch {
+          cameraGrabFailStreakRef.current += 1;
+          cameraDebugRef.current.grabFailureCount += 1;
+          if (cameraGrabFailStreakRef.current >= CAMERA_GRAB_FAIL_THRESHOLD) {
+            await switchCameraMode("video", `track_processor_fail_${cameraGrabFailStreakRef.current}`);
+            return;
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  async function switchCameraMode(nextMode: CameraMode, reason = "") {
+    if (!cameraStreamRef.current || nextMode === "off") {
+      cameraModeRef.current = "off";
+      stopCameraSourcePipeline();
+      refreshCameraDebug({ mode: "off" });
+      return;
+    }
+    if (cameraModeRef.current === nextMode) return;
+
+    stopCameraSourcePipeline();
+    cameraModeRef.current = nextMode;
+    if (reason) {
+      console.info("[camera] mode switch", { mode: nextMode, reason });
+    }
+
+    if (nextMode === "video") {
+      await swapCameraVideoStream(cameraStreamRef.current);
+      refreshCameraDebug({ mode: "video" });
+      return;
+    }
+
+    const track = cameraStreamRef.current.getVideoTracks()[0];
+    const TrackProcessorCtor = (window as typeof window & {
+      MediaStreamTrackProcessor?: new (options: { track: MediaStreamTrack }) => CameraTrackProcessor;
+    }).MediaStreamTrackProcessor;
+
+    if (!track || !TrackProcessorCtor || settingsRef.current.cameraCompatibilityMode) {
+      await switchCameraMode("video", "track_processor_unavailable");
+      return;
+    }
+
+    const processor = new TrackProcessorCtor({ track });
+    const reader = processor.readable.getReader();
+    cameraTrackReaderRef.current = reader;
+    const token = cameraLoopTokenRef.current + 1;
+    cameraLoopTokenRef.current = token;
+    refreshCameraDebug({ mode: "track-processor" });
+    void startTrackProcessorLoop(token, reader);
+  }
+
+  async function recoverCamera(reason: string) {
+    if (cameraRecoveryInFlightRef.current) return;
+    if (cameraRecoveryAttemptsRef.current >= CAMERA_MAX_RECOVERY_ATTEMPTS) return;
+
+    cameraRecoveryInFlightRef.current = true;
+    cameraRecoveryAttemptsRef.current += 1;
+    const freezeCount = cameraDebugRef.current.freezeCount + 1;
+    refreshCameraDebug({
+      freezeCount,
+      recoveryAttemptCount: cameraRecoveryAttemptsRef.current,
+      lastFreezeReason: reason,
+      lastFreezeAtMs: Math.round(performance.now())
+    });
+    console.warn("[camera] freeze detected", createDebugSnapshot({ lastFreezeReason: reason }));
+
+    try {
+      const previous = cameraStreamRef.current;
+      previous?.getTracks().forEach((track) => track.stop());
+      await new Promise((resolve) => setTimeout(resolve, CAMERA_RECOVERY_BACKOFF_MS * cameraRecoveryAttemptsRef.current));
+      const replacement = await navigator.mediaDevices.getUserMedia({
+        video: settingsRef.current.cameraCompatibilityMode
+          ? { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } }
+          : true,
+        audio: false
+      });
+      cameraStreamRef.current = replacement;
+      await swapCameraVideoStream(replacement);
+      cameraModeRef.current = "off";
+      const nextMode = settingsRef.current.cameraCompatibilityMode ? "video" : "track-processor";
+      await switchCameraMode(nextMode, `recovered_after_${reason}`);
+      cameraLastFrameAtRef.current = performance.now();
+      refreshCameraDebug({
+        recoveryCount: cameraDebugRef.current.recoveryCount + 1
+      });
+    } catch (err) {
+      console.error("[camera] recovery failed", err);
+      await switchCameraMode("video", "recovery_failed_video_mode");
+    } finally {
+      cameraRecoveryInFlightRef.current = false;
+    }
+  }
+
+  function startCameraWatchdog() {
+    if (cameraWatchdogRef.current !== null) window.clearInterval(cameraWatchdogRef.current);
+    cameraWatchdogRef.current = window.setInterval(() => {
+      const snapshot = refreshCameraDebug();
+      if (recorderRef.current?.state !== "recording") return;
+      if (!settingsRef.current.cameraEnabled || snapshot.mode === "off") return;
+      if (snapshot.frameDeltaMs >= CAMERA_STALL_THRESHOLD_MS) {
+        void recoverCamera(`stall_${snapshot.frameDeltaMs}ms`);
+      }
+    }, CAMERA_WATCHDOG_INTERVAL_MS);
+  }
+
   function teardown() {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    if (cameraWatchdogRef.current !== null) window.clearInterval(cameraWatchdogRef.current);
     rafRef.current = null;
     timerRef.current = null;
+    cameraWatchdogRef.current = null;
+    recordingActiveRef.current = false;
+    stopCameraSourcePipeline();
+    cameraModeRef.current = "off";
 
     for (const stream of [displayStreamRef.current, cameraStreamRef.current, micStreamRef.current, composedStreamRef.current]) {
       stream?.getTracks().forEach((track) => track.stop());
+    }
+
+    const displayVideo = hiddenDisplayVideoRef.current;
+    const camVideo = hiddenCameraVideoRef.current;
+    if (displayVideo) {
+      displayVideo.pause();
+      displayVideo.srcObject = null;
+      displayVideo.remove();
+    }
+    if (camVideo) {
+      camVideo.pause();
+      camVideo.srcObject = null;
+      camVideo.remove();
     }
 
     displayStreamRef.current = null;
     cameraStreamRef.current = null;
     micStreamRef.current = null;
     composedStreamRef.current = null;
+    hiddenDisplayVideoRef.current = null;
+    hiddenCameraVideoRef.current = null;
     recorderRef.current = null;
     chunksRef.current = [];
     draftRef.current = null;
     clickRipplesRef.current = [];
+    cameraRecoveryAttemptsRef.current = 0;
+    cameraRecoveryInFlightRef.current = false;
+    cameraLastFrameAtRef.current = 0;
+    cameraLastVideoTimeRef.current = 0;
+    cameraDebugRef.current = {
+      mode: "off",
+      trackReadyState: "none",
+      trackMuted: false,
+      trackEnabled: false,
+      videoReadyState: 0,
+      videoPaused: true,
+      videoCurrentTime: 0,
+      grabSuccessCount: 0,
+      grabFailureCount: 0,
+      frameDeltaMs: -1,
+      freezeCount: 0,
+      recoveryCount: 0,
+      recoveryAttemptCount: 0,
+      lastFreezeReason: "",
+      lastFreezeAtMs: 0
+    };
+    setCameraDebug(null);
     if (audioContextRef.current) {
       void audioContextRef.current.close();
       audioContextRef.current = null;
@@ -284,20 +586,20 @@ export function RecorderApp() {
 
       const displayVideo = document.createElement("video");
       displayVideo.srcObject = displayStream;
-      displayVideo.muted = true;
-      displayVideo.playsInline = true;
       hiddenDisplayVideoRef.current = displayVideo;
+      attachHiddenVideo(displayVideo);
       await displayVideo.play();
 
       if (cameraStreamRef.current) {
-        const camVideo = document.createElement("video");
-        camVideo.srcObject = cameraStreamRef.current;
-        camVideo.muted = true;
-        camVideo.playsInline = true;
-        hiddenCameraVideoRef.current = camVideo;
-        await camVideo.play();
+        await swapCameraVideoStream(cameraStreamRef.current);
+        cameraModeRef.current = "video";
+        const preferredMode: CameraMode = settingsRef.current.cameraCompatibilityMode ? "video" : "track-processor";
+        await switchCameraMode(preferredMode, "recording_start");
+        cameraLastFrameAtRef.current = performance.now();
+        refreshCameraDebug();
       } else {
         hiddenCameraVideoRef.current = null;
+        cameraModeRef.current = "off";
       }
 
       const composed = canvas.captureStream(settingsRef.current.fps);
@@ -327,11 +629,13 @@ export function RecorderApp() {
         teardown();
       };
 
+      recordingActiveRef.current = true;
       renderFrame();
       recorder.start(500);
       setStatus("recording");
       setElapsed(0);
       setHint("Shortcuts: Space pause/resume · S stop · C cancel.");
+      startCameraWatchdog();
       timerRef.current = window.setInterval(() => {
         setElapsed((v) => v + 1);
       }, 1000);
@@ -383,7 +687,7 @@ export function RecorderApp() {
       ctx.drawImage(displayVideo, 0, 0, canvas.width, canvas.height);
 
       const camVideo = hiddenCameraVideoRef.current;
-      if (camVideo && settingsRef.current.cameraEnabled) {
+      if (settingsRef.current.cameraEnabled && (camVideo || cameraVideoFrameRef.current)) {
         const cameraW = canvas.width * cameraScaleRef.current;
         const cameraH = cameraW * (9 / 16);
         const cameraX = cameraPosRef.current.x * canvas.width;
@@ -400,7 +704,16 @@ export function RecorderApp() {
           ctx.clip();
         }
 
-        ctx.drawImage(camVideo, cameraX, cameraY, cameraW, cameraH);
+        if (cameraModeRef.current === "track-processor" && cameraVideoFrameRef.current) {
+          ctx.drawImage(cameraVideoFrameRef.current as unknown as CanvasImageSource, cameraX, cameraY, cameraW, cameraH);
+        } else if (camVideo) {
+          const currentTime = camVideo.currentTime;
+          if (currentTime !== cameraLastVideoTimeRef.current) {
+            cameraLastVideoTimeRef.current = currentTime;
+            cameraLastFrameAtRef.current = performance.now();
+          }
+          ctx.drawImage(camVideo, cameraX, cameraY, cameraW, cameraH);
+        }
         ctx.restore();
 
         if (toolRef.current === "move-camera") {
@@ -810,6 +1123,15 @@ export function RecorderApp() {
                 <option value="rectangle">Rectangle</option>
               </select>
             </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={settings.cameraCompatibilityMode}
+                disabled={!canRecord}
+                onChange={(e) => updateSettings({ cameraCompatibilityMode: e.target.checked })}
+              />
+              Compatibility Camera Mode
+            </label>
           </div>
         )}
 
@@ -863,6 +1185,27 @@ export function RecorderApp() {
         {countdown > 0 && status === "countdown" && <div className="countdown">{countdown}</div>}
         {hint && <p className="hint">{hint}</p>}
         {error && <p className="error">{error}</p>}
+        {cameraDebug && (status === "recording" || status === "paused") && (
+          <div className="camera-debug" aria-live="polite">
+            <p>
+              Camera debug: mode={cameraDebug.mode} track={cameraDebug.trackReadyState} muted={String(cameraDebug.trackMuted)}
+              enabled={String(cameraDebug.trackEnabled)}
+            </p>
+            <p>
+              videoReady={cameraDebug.videoReadyState} paused={String(cameraDebug.videoPaused)} t={cameraDebug.videoCurrentTime}s
+              delta={cameraDebug.frameDeltaMs}ms
+            </p>
+            <p>
+              grab ok/fail={cameraDebug.grabSuccessCount}/{cameraDebug.grabFailureCount} freeze={cameraDebug.freezeCount}
+              recover={cameraDebug.recoveryCount}/{cameraDebug.recoveryAttemptCount}
+            </p>
+            {cameraDebug.lastFreezeReason && (
+              <p>
+                last-freeze={cameraDebug.lastFreezeReason} at={cameraDebug.lastFreezeAtMs}ms
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="preview-wrap">
@@ -889,6 +1232,8 @@ export function RecorderApp() {
           </div>
         </section>
       )}
+
+      <div ref={hiddenMediaHostRef} className="hidden-media-host" aria-hidden="true" />
     </main>
   );
 }

@@ -8,6 +8,7 @@ export interface RecordingSettings {
   fps: 15 | 30 | 60;
   resolution: ResolutionPreset;
   cameraShape: "circle" | "rectangle";
+  cameraCompatibilityMode: boolean;
 }
 
 export interface RecordingItem {

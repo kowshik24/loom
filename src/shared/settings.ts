@@ -9,7 +9,8 @@ export const defaultRecordingSettings: RecordingSettings = {
   countdownSeconds: 3,
   fps: 30,
   resolution: "1080p",
-  cameraShape: "circle"
+  cameraShape: "circle",
+  cameraCompatibilityMode: false
 };
 
 export async function getRecordingSettings(): Promise<RecordingSettings> {
