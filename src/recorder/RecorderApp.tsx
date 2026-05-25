@@ -178,6 +178,7 @@ export function RecorderApp() {
   }, []);
 
   const canRecord = useMemo(() => status === "idle" || status === "done", [status]);
+  const isRecordingActive = status === "recording" || status === "paused";
 
   function updateSettings(patch: Partial<RecordingSettings>) {
     const next = { ...settingsRef.current, ...patch };
@@ -687,8 +688,15 @@ export function RecorderApp() {
   return (
     <main className="recorder-page">
       <header>
-        <h1>LocalLoom Recorder</h1>
-        <p>{status === "recording" || status === "paused" ? formatDuration(elapsed) : "Ready"}</p>
+        <div className="title-row">
+          <h1>LocalLoom Recorder</h1>
+          {isRecordingActive && (
+            <span className={`recording-badge ${status === "paused" ? "paused" : ""}`}>
+              {status === "paused" ? "Paused" : "Recording"}
+            </span>
+          )}
+        </div>
+        <p>{isRecordingActive ? formatDuration(elapsed) : "Ready"}</p>
       </header>
 
       <section className="panel">

@@ -6,8 +6,9 @@ import {
   putRecording,
   renameRecording
 } from "../shared/db";
+import { getRecordingSettings } from "../shared/settings";
 import { createThumbnail, formatBytes, formatDuration, trimBlob } from "../shared/media";
-import type { RecordingItem } from "../shared/types";
+import type { RecordingItem, RuntimeMessage } from "../shared/types";
 
 export function LibraryApp() {
   const [items, setItems] = useState<RecordingItem[]>([]);
@@ -145,6 +146,14 @@ export function LibraryApp() {
     }
   }
 
+  async function openRecorder() {
+    const settings = await getRecordingSettings();
+    await chrome.runtime.sendMessage({
+      type: "POPUP_OPEN_RECORDER",
+      payload: { settings }
+    } satisfies RuntimeMessage);
+  }
+
   return (
     <main className="library-page">
       <header>
@@ -160,7 +169,20 @@ export function LibraryApp() {
 
       <section className="layout">
         <aside>
-          {filtered.length === 0 && <p className="muted">No recordings yet.</p>}
+          {filtered.length === 0 && (
+            <div className="empty-state">
+              <p className="muted">
+                {items.length === 0 ? "No recordings yet." : "No recordings match search."}
+              </p>
+              <div className="empty-actions">
+                {items.length === 0 ? (
+                  <button onClick={() => void openRecorder()}>Open Recorder</button>
+                ) : (
+                  <button onClick={() => setQuery("")}>Clear Search</button>
+                )}
+              </div>
+            </div>
+          )}
           {filtered.map((item) => (
             <button
               key={item.id}
