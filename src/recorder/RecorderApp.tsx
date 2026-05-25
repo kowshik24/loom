@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createThumbnail, formatDuration } from "../shared/media";
+import { createThumbnail, formatDuration, sanitizeFilename } from "../shared/media";
 import { putRecording } from "../shared/db";
 import { defaultRecordingSettings, getRecordingSettings, saveRecordingSettings } from "../shared/settings";
 import type { RecordingItem, RecordingSettings, RuntimeMessage } from "../shared/types";
@@ -72,6 +72,8 @@ export function RecorderApp() {
   const [cursorSpotlight, setCursorSpotlight] = useState(true);
   const [clickEmphasis, setClickEmphasis] = useState(true);
   const [hint, setHint] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showTools, setShowTools] = useState(false);
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hiddenDisplayVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -126,6 +128,12 @@ export function RecorderApp() {
   useEffect(() => {
     clickEmphasisRef.current = clickEmphasis;
   }, [clickEmphasis]);
+
+  useEffect(() => {
+    if (!showTools && tool !== "move-camera") {
+      setTool("move-camera");
+    }
+  }, [showTools, tool]);
 
   useEffect(() => {
     const active = status === "recording" || status === "paused" || status === "processing";
@@ -494,7 +502,7 @@ export function RecorderApp() {
     const url = URL.createObjectURL(savedItem.blob);
     await chrome.downloads.download({
       url,
-      filename: `LocalLoom/${savedItem.title}.webm`,
+      filename: `LocalLoom/${sanitizeFilename(savedItem.title)}.webm`,
       saveAs: true
     });
     setTimeout(() => URL.revokeObjectURL(url), 2000);
@@ -729,55 +737,6 @@ export function RecorderApp() {
             System Audio
           </label>
           <label>
-            Resolution
-            <select
-              disabled={!canRecord}
-              value={settings.resolution}
-              onChange={(e) => updateSettings({ resolution: e.target.value as RecordingSettings["resolution"] })}
-            >
-              <option value="source">Source</option>
-              <option value="720p">720p</option>
-              <option value="1080p">1080p</option>
-              <option value="1440p">1440p</option>
-              <option value="4k">4K</option>
-            </select>
-          </label>
-          <label>
-            FPS
-            <select
-              disabled={!canRecord}
-              value={settings.fps}
-              onChange={(e) => updateSettings({ fps: Number(e.target.value) as 15 | 30 | 60 })}
-            >
-              <option value={15}>15</option>
-              <option value={30}>30</option>
-              <option value={60}>60</option>
-            </select>
-          </label>
-          <label>
-            Countdown
-            <select
-              disabled={!canRecord}
-              value={settings.countdownSeconds}
-              onChange={(e) => updateSettings({ countdownSeconds: Number(e.target.value) as 0 | 3 | 5 })}
-            >
-              <option value={0}>Off</option>
-              <option value={3}>3 sec</option>
-              <option value={5}>5 sec</option>
-            </select>
-          </label>
-          <label>
-            Camera Shape
-            <select
-              disabled={!canRecord}
-              value={settings.cameraShape}
-              onChange={(e) => updateSettings({ cameraShape: e.target.value as "circle" | "rectangle" })}
-            >
-              <option value="circle">Circle</option>
-              <option value="rectangle">Rectangle</option>
-            </select>
-          </label>
-          <label>
             Camera Size
             <input
               type="range"
@@ -791,36 +750,97 @@ export function RecorderApp() {
           </label>
         </div>
 
-        <div className="tool-row">
-          <button className={tool === "move-camera" ? "active" : ""} onClick={() => setTool("move-camera")}>Move Cam</button>
-          <button className={tool === "pen" ? "active" : ""} onClick={() => setTool("pen")}>Pen</button>
-          <button className={tool === "highlighter" ? "active" : ""} onClick={() => setTool("highlighter")}>Highlight</button>
-          <button className={tool === "rect" ? "active" : ""} onClick={() => setTool("rect")}>Rect</button>
-          <button className={tool === "circle" ? "active" : ""} onClick={() => setTool("circle")}>Circle</button>
-          <button className={tool === "arrow" ? "active" : ""} onClick={() => setTool("arrow")}>Arrow</button>
-          <button className={tool === "text" ? "active" : ""} onClick={() => setTool("text")}>Text</button>
-          <button className={tool === "eraser" ? "active" : ""} onClick={() => setTool("eraser")}>Eraser</button>
-          <input
-            type="color"
-            value={toolColor}
-            onChange={(e) => setToolColor(e.target.value)}
-            title="Annotation color"
-            disabled={tool === "highlighter" || tool === "move-camera" || tool === "eraser"}
-          />
-          <label className="tool-size">
-            Size
-            <input type="range" min={2} max={22} step={1} value={toolSize} onChange={(e) => setToolSize(Number(e.target.value))} />
-          </label>
-          <button onClick={undoAnnotation} disabled={!annotations.length}>Undo</button>
-          <button onClick={redoAnnotation} disabled={!redoStack.length}>Redo</button>
-          <button onClick={clearAnnotations} disabled={!annotations.length}>Clear</button>
-          <button className={cursorSpotlight ? "active" : ""} onClick={() => setCursorSpotlight((v) => !v)}>
-            Spotlight
+        <div className="toggle-row">
+          <button className="link inline-link" onClick={() => setShowAdvanced((v) => !v)}>
+            {showAdvanced ? "Hide advanced settings" : "Show advanced settings"}
           </button>
-          <button className={clickEmphasis ? "active" : ""} onClick={() => setClickEmphasis((v) => !v)}>
-            Click FX
+          <button className="link inline-link" onClick={() => setShowTools((v) => !v)}>
+            {showTools ? "Hide annotation tools" : "Show annotation tools"}
           </button>
         </div>
+
+        {showAdvanced && (
+          <div className="controls-grid advanced-grid">
+            <label>
+              Resolution
+              <select
+                disabled={!canRecord}
+                value={settings.resolution}
+                onChange={(e) => updateSettings({ resolution: e.target.value as RecordingSettings["resolution"] })}
+              >
+                <option value="source">Source</option>
+                <option value="720p">720p</option>
+                <option value="1080p">1080p</option>
+                <option value="1440p">1440p</option>
+                <option value="4k">4K</option>
+              </select>
+            </label>
+            <label>
+              FPS
+              <select
+                disabled={!canRecord}
+                value={settings.fps}
+                onChange={(e) => updateSettings({ fps: Number(e.target.value) as 15 | 30 | 60 })}
+              >
+                <option value={15}>15</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+              </select>
+            </label>
+            <label>
+              Countdown
+              <select
+                disabled={!canRecord}
+                value={settings.countdownSeconds}
+                onChange={(e) => updateSettings({ countdownSeconds: Number(e.target.value) as 0 | 3 | 5 })}
+              >
+                <option value={0}>Off</option>
+                <option value={3}>3 sec</option>
+                <option value={5}>5 sec</option>
+              </select>
+            </label>
+            <label>
+              Camera Shape
+              <select
+                disabled={!canRecord}
+                value={settings.cameraShape}
+                onChange={(e) => updateSettings({ cameraShape: e.target.value as "circle" | "rectangle" })}
+              >
+                <option value="circle">Circle</option>
+                <option value="rectangle">Rectangle</option>
+              </select>
+            </label>
+          </div>
+        )}
+
+        {showTools && (
+          <div className="tool-row">
+            <button className={tool === "move-camera" ? "active" : ""} onClick={() => setTool("move-camera")}>Move Cam</button>
+            <button className={tool === "pen" ? "active" : ""} onClick={() => setTool("pen")}>Pen</button>
+            <button className={tool === "text" ? "active" : ""} onClick={() => setTool("text")}>Text</button>
+            <button className={tool === "eraser" ? "active" : ""} onClick={() => setTool("eraser")}>Eraser</button>
+            <input
+              type="color"
+              value={toolColor}
+              onChange={(e) => setToolColor(e.target.value)}
+              title="Annotation color"
+              disabled={tool === "move-camera" || tool === "eraser"}
+            />
+            <label className="tool-size">
+              Size
+              <input type="range" min={2} max={22} step={1} value={toolSize} onChange={(e) => setToolSize(Number(e.target.value))} />
+            </label>
+            <button onClick={undoAnnotation} disabled={!annotations.length}>Undo</button>
+            <button onClick={redoAnnotation} disabled={!redoStack.length}>Redo</button>
+            <button onClick={clearAnnotations} disabled={!annotations.length}>Clear</button>
+            <button className={cursorSpotlight ? "active" : ""} onClick={() => setCursorSpotlight((v) => !v)}>
+              Spotlight
+            </button>
+            <button className={clickEmphasis ? "active" : ""} onClick={() => setClickEmphasis((v) => !v)}>
+              Click FX
+            </button>
+          </div>
+        )}
 
         <div className="button-row">
           <button disabled={!canRecord} className="start" onClick={() => void beginRecording()}>

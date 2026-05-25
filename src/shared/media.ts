@@ -11,6 +11,14 @@ export function formatDuration(seconds: number): string {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+export function sanitizeFilename(name: string): string {
+  const cleaned = name
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "recording";
+}
+
 export async function createThumbnail(
   blob: Blob,
   atSecond = 2,

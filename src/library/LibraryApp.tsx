@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   deleteRecording,
-  duplicateRecording,
   listRecordings,
   putRecording,
   renameRecording
 } from "../shared/db";
 import { getRecordingSettings } from "../shared/settings";
-import { createThumbnail, formatBytes, formatDuration, trimBlob } from "../shared/media";
+import { createThumbnail, formatBytes, formatDuration, sanitizeFilename, trimBlob } from "../shared/media";
 import type { RecordingItem, RuntimeMessage } from "../shared/types";
 
 export function LibraryApp() {
@@ -83,7 +82,7 @@ export function LibraryApp() {
       const url = URL.createObjectURL(selected.blob);
       await chrome.downloads.download({
         url,
-        filename: `LocalLoom/${selected.title}.webm`,
+        filename: `LocalLoom/${sanitizeFilename(selected.title)}.webm`,
         saveAs: true
       });
       setTimeout(() => URL.revokeObjectURL(url), 3000);
@@ -113,15 +112,12 @@ export function LibraryApp() {
     await refresh();
   }
 
-  async function duplicateSelected() {
+  async function trimSelected(saveAsCopy: boolean) {
     if (!selected) return;
-    await duplicateRecording(selected.id);
-    setNotice("Recording duplicated.");
-    await refresh();
-  }
-
-  async function trimSelected() {
-    if (!selected) return;
+    if (!saveAsCopy) {
+      const confirmed = confirm("Trim will replace original recording. Continue?");
+      if (!confirmed) return;
+    }
     setError("");
     setBusy(true);
     try {
@@ -129,15 +125,19 @@ export function LibraryApp() {
       const thumb = await createThumbnail(trimmedBlob);
       const updated: RecordingItem = {
         ...selected,
+        id: saveAsCopy ? crypto.randomUUID() : selected.id,
+        title: saveAsCopy ? `${selected.title} (trimmed)` : selected.title,
+        createdAt: saveAsCopy ? Date.now() : selected.createdAt,
         blob: trimmedBlob,
         size: trimmedBlob.size,
         duration: Math.max(selected.duration - trimStart - trimEnd, 0.1),
         thumbnailDataUrl: thumb
       };
       await putRecording(updated);
+      if (saveAsCopy) setSelectedId(updated.id);
       setTrimStart(0);
       setTrimEnd(0);
-      setNotice("Trim applied.");
+      setNotice(saveAsCopy ? "Trim saved as copy." : "Trim applied.");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Trim failed.");
@@ -215,7 +215,6 @@ export function LibraryApp() {
               <div className="actions">
                 <button disabled={busy} onClick={exportSelected}>Export</button>
                 <button disabled={busy} onClick={renameSelected}>Rename</button>
-                <button disabled={busy} onClick={duplicateSelected}>Duplicate</button>
                 <button disabled={busy} className="danger" onClick={deleteSelected}>
                   Delete
                 </button>
@@ -245,9 +244,14 @@ export function LibraryApp() {
                     onChange={(e) => setTrimEnd(Number(e.target.value))}
                   />
                 </label>
-                <button disabled={busy || trimStart + trimEnd <= 0} onClick={trimSelected}>
-                  {busy ? "Processing..." : "Apply Trim"}
-                </button>
+                <div className="trim-actions">
+                  <button disabled={busy || trimStart + trimEnd <= 0} onClick={() => void trimSelected(true)}>
+                    {busy ? "Processing..." : "Save Trim As Copy"}
+                  </button>
+                  <button disabled={busy || trimStart + trimEnd <= 0} onClick={() => void trimSelected(false)}>
+                    Replace Original
+                  </button>
+                </div>
               </section>
             </>
           )}

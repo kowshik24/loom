@@ -8,6 +8,7 @@ export function PopupApp() {
   const [settings, setSettings] = useState<RecordingSettings | null>(null);
   const [recent, setRecent] = useState<RecordingItem[]>([]);
   const [starting, setStarting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -81,30 +82,36 @@ export function PopupApp() {
           System audio
         </label>
 
-        <div className="row">
-          <label>
-            Countdown
-            <select
-              value={settings.countdownSeconds}
-              onChange={(e) => updateSettings({ countdownSeconds: Number(e.target.value) as 0 | 3 | 5 })}
-            >
-              <option value={0}>Off</option>
-              <option value={3}>3 sec</option>
-              <option value={5}>5 sec</option>
-            </select>
-          </label>
-          <label>
-            FPS
-            <select
-              value={settings.fps}
-              onChange={(e) => updateSettings({ fps: Number(e.target.value) as 15 | 30 | 60 })}
-            >
-              <option value={15}>15</option>
-              <option value={30}>30</option>
-              <option value={60}>60</option>
-            </select>
-          </label>
-        </div>
+        <button className="link inline-link" onClick={() => setShowAdvanced((v) => !v)}>
+          {showAdvanced ? "Hide advanced" : "Show advanced"}
+        </button>
+
+        {showAdvanced && (
+          <div className="row">
+            <label>
+              Countdown
+              <select
+                value={settings.countdownSeconds}
+                onChange={(e) => updateSettings({ countdownSeconds: Number(e.target.value) as 0 | 3 | 5 })}
+              >
+                <option value={0}>Off</option>
+                <option value={3}>3 sec</option>
+                <option value={5}>5 sec</option>
+              </select>
+            </label>
+            <label>
+              FPS
+              <select
+                value={settings.fps}
+                onChange={(e) => updateSettings({ fps: Number(e.target.value) as 15 | 30 | 60 })}
+              >
+                <option value={15}>15</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+              </select>
+            </label>
+          </div>
+        )}
 
         <button className="record" disabled={!canStart || starting} onClick={startRecording}>
           {starting ? "Opening..." : "Start Recording"}

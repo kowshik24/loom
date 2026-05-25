@@ -25,7 +25,7 @@ Chrome MV3 extension for local-first screen recording.
   - IndexedDB storage for blob + metadata + thumbnail
   - Search by title
   - Playback preview
-  - Rename / Delete / Duplicate
+  - Rename / Delete
   - Trim start/end and save back to recording
   - Export `.webm`
 - Background service worker:
@@ -59,6 +59,15 @@ npm run build
 ```
 
 Production output in `dist/`.
+
+## CI/CD
+
+- Workflow: `.github/workflows/release-on-main.yml`
+- Trigger: push to `main`
+- Pipeline: `npm ci` -> `npm run typecheck` -> `npm run build`
+- CD: creates GitHub Release with tag `v<package-version>-build.<run-number>`
+- Asset: zipped extension bundle from `dist/`
+- PR CI workflow: `.github/workflows/ci-pr.yml` (runs checks on pull requests to `main`, no release)
 
 ## Current scope vs long plan
 

@@ -80,6 +80,12 @@ select {
   cursor: pointer;
 }
 
+.inline-link {
+  padding: 0;
+  text-align: left;
+  width: fit-content;
+}
+
 .recent-row {
   display: grid;
   grid-template-columns: 84px 1fr;
