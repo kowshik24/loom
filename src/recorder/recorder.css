@@ -211,3 +211,28 @@ button.stop {
   margin: 8px 0 0;
   font-size: 12px;
 }
+
+.camera-debug {
+  margin-top: 8px;
+  border: 1px solid #365180;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #0b1530;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #9bc0ff;
+}
+
+.camera-debug p {
+  margin: 0;
+}
+
+.hidden-media-host {
+  position: fixed;
+  width: 2px;
+  height: 2px;
+  right: -100px;
+  bottom: -100px;
+  overflow: hidden;
+  opacity: 0.01;
+}

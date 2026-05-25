@@ -110,6 +110,14 @@ export function PopupApp() {
                 <option value={60}>60</option>
               </select>
             </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={settings.cameraCompatibilityMode}
+                onChange={(e) => updateSettings({ cameraCompatibilityMode: e.target.checked })}
+              />
+              Cam compatibility
+            </label>
           </div>
         )}
 
