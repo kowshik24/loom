@@ -62,12 +62,13 @@ Production output in `dist/`.
 
 ## Current scope vs long plan
 
-This repo now covers Phase 1 + core Phase 2 vertical slice.
+This repo now covers Phase 1 + core Phase 2 + part of Phase 3.
 Not implemented yet:
 
-- Annotation toolbar and drawing engine
 - Split/merge timeline editor
 - MP4 export via ffmpeg.wasm
 - Offscreen document worker pipeline
 - File System Access API save directory mode
 - OCR blur/watermark
+- Post-edit audio track mixing
+- Automated tests (Vitest/Playwright)

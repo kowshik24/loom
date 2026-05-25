@@ -7,6 +7,7 @@ import type { RecordingItem, RecordingSettings, RuntimeMessage } from "../shared
 export function PopupApp() {
   const [settings, setSettings] = useState<RecordingSettings | null>(null);
   const [recent, setRecent] = useState<RecordingItem[]>([]);
+  const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -25,13 +26,18 @@ export function PopupApp() {
   }
 
   async function startRecording() {
-    if (!settings) return;
-    await saveRecordingSettings(settings);
-    await chrome.runtime.sendMessage({
-      type: "POPUP_OPEN_RECORDER",
-      payload: { settings }
-    } satisfies RuntimeMessage);
-    window.close();
+    if (!settings || starting) return;
+    setStarting(true);
+    try {
+      await saveRecordingSettings(settings);
+      await chrome.runtime.sendMessage({
+        type: "POPUP_OPEN_RECORDER",
+        payload: { settings }
+      } satisfies RuntimeMessage);
+      window.close();
+    } finally {
+      setStarting(false);
+    }
   }
 
   if (!settings) return <main className="popup loading">Loading...</main>;
@@ -100,9 +106,10 @@ export function PopupApp() {
           </label>
         </div>
 
-        <button className="record" disabled={!canStart} onClick={startRecording}>
-          Start Recording
+        <button className="record" disabled={!canStart || starting} onClick={startRecording}>
+          {starting ? "Opening..." : "Start Recording"}
         </button>
+        <p className="tip">Tip: `Space` pause/resume, `S` stop, `C` cancel (inside recorder).</p>
       </section>
 
       <section className="card">

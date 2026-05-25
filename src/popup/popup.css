@@ -106,3 +106,9 @@ select {
   color: #99a4ce;
   font-size: 12px;
 }
+
+.tip {
+  margin: 0;
+  color: #9ab5ff;
+  font-size: 11px;
+}

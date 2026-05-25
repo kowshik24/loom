@@ -17,6 +17,8 @@ export function LibraryApp() {
   const [trimEnd, setTrimEnd] = useState(0);
   const [busy, setBusy] = useState(false);
   const [selectedVideoUrl, setSelectedVideoUrl] = useState("");
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     void refresh();
@@ -40,6 +42,20 @@ export function LibraryApp() {
   }, [selected, selectedId]);
 
   useEffect(() => {
+    setTrimStart(0);
+    setTrimEnd(0);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!notice && !error) return;
+    const id = window.setTimeout(() => {
+      setNotice("");
+      setError("");
+    }, 2500);
+    return () => window.clearTimeout(id);
+  }, [notice, error]);
+
+  useEffect(() => {
     if (!selected) {
       setSelectedVideoUrl("");
       return;
@@ -61,20 +77,28 @@ export function LibraryApp() {
 
   async function exportSelected() {
     if (!selected) return;
-    const url = URL.createObjectURL(selected.blob);
-    await chrome.downloads.download({
-      url,
-      filename: `LocalLoom/${selected.title}.webm`,
-      saveAs: true
-    });
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    setError("");
+    try {
+      const url = URL.createObjectURL(selected.blob);
+      await chrome.downloads.download({
+        url,
+        filename: `LocalLoom/${selected.title}.webm`,
+        saveAs: true
+      });
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+      setNotice("Export started.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed.");
+    }
   }
 
   async function renameSelected() {
     if (!selected) return;
     const next = prompt("Rename recording", selected.title);
-    if (!next || next === selected.title) return;
-    await renameRecording(selected.id, next.trim());
+    const clean = next?.trim();
+    if (!clean || clean === selected.title) return;
+    await renameRecording(selected.id, clean);
+    setNotice("Recording renamed.");
     await refresh();
   }
 
@@ -84,17 +108,20 @@ export function LibraryApp() {
     if (!confirmed) return;
     await deleteRecording(selected.id);
     setSelectedId("");
+    setNotice("Recording deleted.");
     await refresh();
   }
 
   async function duplicateSelected() {
     if (!selected) return;
     await duplicateRecording(selected.id);
+    setNotice("Recording duplicated.");
     await refresh();
   }
 
   async function trimSelected() {
     if (!selected) return;
+    setError("");
     setBusy(true);
     try {
       const trimmedBlob = await trimBlob(selected.blob, trimStart, trimEnd);
@@ -109,7 +136,10 @@ export function LibraryApp() {
       await putRecording(updated);
       setTrimStart(0);
       setTrimEnd(0);
+      setNotice("Trim applied.");
       await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Trim failed.");
     } finally {
       setBusy(false);
     }
@@ -152,6 +182,8 @@ export function LibraryApp() {
           {!selected && <p className="muted">Select recording.</p>}
           {selected && (
             <>
+              {notice && <p className="notice">{notice}</p>}
+              {error && <p className="error">{error}</p>}
               <h2>{selected.title}</h2>
               <video controls src={selectedVideoUrl} />
               <p className="meta">
@@ -159,10 +191,10 @@ export function LibraryApp() {
               </p>
 
               <div className="actions">
-                <button onClick={exportSelected}>Export</button>
-                <button onClick={renameSelected}>Rename</button>
-                <button onClick={duplicateSelected}>Duplicate</button>
-                <button className="danger" onClick={deleteSelected}>
+                <button disabled={busy} onClick={exportSelected}>Export</button>
+                <button disabled={busy} onClick={renameSelected}>Rename</button>
+                <button disabled={busy} onClick={duplicateSelected}>Duplicate</button>
+                <button disabled={busy} className="danger" onClick={deleteSelected}>
                   Delete
                 </button>
               </div>

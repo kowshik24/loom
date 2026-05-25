@@ -71,6 +71,7 @@ export function RecorderApp() {
   const [redoStack, setRedoStack] = useState<Annotation[]>([]);
   const [cursorSpotlight, setCursorSpotlight] = useState(true);
   const [clickEmphasis, setClickEmphasis] = useState(true);
+  const [hint, setHint] = useState("");
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hiddenDisplayVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -85,6 +86,7 @@ export function RecorderApp() {
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const composedStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const annotationsRef = useRef<Annotation[]>([]);
   const toolRef = useRef<Tool>(tool);
@@ -124,6 +126,36 @@ export function RecorderApp() {
   useEffect(() => {
     clickEmphasisRef.current = clickEmphasis;
   }, [clickEmphasis]);
+
+  useEffect(() => {
+    const active = status === "recording" || status === "paused" || status === "processing";
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!active) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [status]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (status === "recording") pauseRecording();
+        else if (status === "paused") resumeRecording();
+      }
+      if (event.key.toLowerCase() === "s") {
+        if (status === "recording" || status === "paused") void stopRecording(false);
+      }
+      if (event.key.toLowerCase() === "c") {
+        if (status === "recording" || status === "paused") void stopRecording(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [status]);
 
   useEffect(() => {
     void (async () => {
@@ -177,10 +209,16 @@ export function RecorderApp() {
     chunksRef.current = [];
     draftRef.current = null;
     clickRipplesRef.current = [];
+    if (audioContextRef.current) {
+      void audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
   }
 
   async function beginRecording() {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") return;
     setError("");
+    setHint("");
     setSavedItem(null);
 
     try {
@@ -194,6 +232,7 @@ export function RecorderApp() {
 
       setCountdown(0);
       clickRipplesRef.current = [];
+      setHint("Pick tab/window/screen in Chrome chooser.");
 
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -283,18 +322,26 @@ export function RecorderApp() {
       recorder.start(500);
       setStatus("recording");
       setElapsed(0);
+      setHint("Shortcuts: Space pause/resume · S stop · C cancel.");
       timerRef.current = window.setInterval(() => {
         setElapsed((v) => v + 1);
       }, 1000);
     } catch (err) {
       setStatus("error");
-      setError(err instanceof Error ? err.message : "Unknown recording failure");
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        setError("Screen permission denied. Retry and click Share in chooser.");
+      } else if (err instanceof DOMException && err.name === "NotFoundError") {
+        setError("No capture source found. Open target tab/window and retry.");
+      } else {
+        setError(err instanceof Error ? err.message : "Unknown recording failure");
+      }
       teardown();
     }
   }
 
   async function buildAudioMix(display: MediaStream, mic: MediaStream | null): Promise<MediaStream> {
     const context = new AudioContext();
+    audioContextRef.current = context;
     const destination = context.createMediaStreamDestination();
 
     const displayAudioTracks = display.getAudioTracks();
@@ -378,6 +425,7 @@ export function RecorderApp() {
       recorderRef.current.pause();
       if (timerRef.current !== null) window.clearInterval(timerRef.current);
       setStatus("paused");
+      setHint("Paused. Press Space to resume.");
     }
   }
 
@@ -388,6 +436,7 @@ export function RecorderApp() {
         setElapsed((v) => v + 1);
       }, 1000);
       setStatus("recording");
+      setHint("Recording resumed.");
     }
   }
 
@@ -409,6 +458,7 @@ export function RecorderApp() {
 
     if (cancel) {
       setStatus("idle");
+      setHint("Recording canceled.");
       return;
     }
 
@@ -435,6 +485,7 @@ export function RecorderApp() {
 
     setSavedItem(created);
     setStatus("done");
+    setHint("Saved to local library.");
   }
 
   async function downloadLatest() {
@@ -548,6 +599,14 @@ export function RecorderApp() {
 
     if (activeTool === "move-camera") {
       if (!settingsRef.current.cameraEnabled) return;
+      const cameraW = cameraScaleRef.current;
+      const cameraH = cameraScaleRef.current * (9 / 16);
+      const insideCamera =
+        start.x >= cameraPosRef.current.x &&
+        start.x <= cameraPosRef.current.x + cameraW &&
+        start.y >= cameraPosRef.current.y &&
+        start.y <= cameraPosRef.current.y + cameraH;
+      if (!insideCamera) return;
       const origin = { ...cameraPosRef.current };
       const startX = e.clientX;
       const startY = e.clientY;
@@ -774,6 +833,7 @@ export function RecorderApp() {
         </div>
 
         {countdown > 0 && status === "countdown" && <div className="countdown">{countdown}</div>}
+        {hint && <p className="hint">{hint}</p>}
         {error && <p className="error">{error}</p>}
       </section>
 

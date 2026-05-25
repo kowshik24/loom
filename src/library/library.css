@@ -116,6 +116,18 @@ aside {
   font-size: 13px;
 }
 
+.notice {
+  margin: 0 0 10px;
+  color: #a7f3d0;
+  font-size: 13px;
+}
+
+.error {
+  margin: 0 0 10px;
+  color: #ff9aa9;
+  font-size: 13px;
+}
+
 .actions {
   display: flex;
   gap: 8px;
