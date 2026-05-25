@@ -425,12 +425,25 @@ export function RecorderApp() {
       const previous = cameraStreamRef.current;
       previous?.getTracks().forEach((track) => track.stop());
       await new Promise((resolve) => setTimeout(resolve, CAMERA_RECOVERY_BACKOFF_MS * cameraRecoveryAttemptsRef.current));
+
+      const recorder = recorderRef.current;
+      if (!recordingActiveRef.current || !recorder || recorder.state === "inactive") {
+        return;
+      }
+
       const replacement = await navigator.mediaDevices.getUserMedia({
         video: settingsRef.current.cameraCompatibilityMode
           ? { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } }
           : true,
         audio: false
       });
+
+      const activeRecorder = recorderRef.current;
+      if (!recordingActiveRef.current || !activeRecorder || activeRecorder.state === "inactive") {
+        replacement.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
       cameraStreamRef.current = replacement;
       await swapCameraVideoStream(replacement);
       cameraModeRef.current = "off";
@@ -442,7 +455,10 @@ export function RecorderApp() {
       });
     } catch (err) {
       console.error("[camera] recovery failed", err);
-      await switchCameraMode("video", "recovery_failed_video_mode");
+      const recorder = recorderRef.current;
+      if (recordingActiveRef.current && recorder && recorder.state !== "inactive") {
+        await switchCameraMode("video", "recovery_failed_video_mode");
+      }
     } finally {
       cameraRecoveryInFlightRef.current = false;
     }
