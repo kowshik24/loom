@@ -1,85 +1,72 @@
 # LocalLoom
 
-Chrome MV3 extension for local-first screen recording.
+Local-first Loom-style screen recorder as Chrome Manifest V3 extension.
 
 ![LocalLoom Logo](./public/loom.png)
 
-## What is implemented
+## Requirements
 
-- Popup quick-start with saved settings:
-  - Camera on/off
-  - Mic on/off
-  - System audio on/off
-  - Advanced section for countdown and FPS
-- Recorder window:
-  - Start screen capture (`getDisplayMedia`)
-  - Optional mic/camera capture
-  - Live camera overlay composited into canvas
-  - Camera drag + size slider during record
-  - Pause / Resume / Stop / Cancel
-  - Auto-stop when shared screen stream ends
-  - Optional advanced settings section (resolution, fps, countdown, camera shape)
-  - Optional annotation section with simple tools: move camera, pen, text, eraser
-  - Annotation editing: undo, redo, clear
-  - Cursor spotlight and click ripple emphasis (toggleable)
-  - Recording status badge + keyboard hints
-- Local library page:
-  - IndexedDB storage for blob + metadata + thumbnail
-  - Search by title
-  - Playback preview
-  - Rename / Delete
-  - Trim start/end with safe copy flow (`Save Trim As Copy`) or replace flow (`Replace Original`)
-  - Export `.webm`
-- Background service worker:
-  - Opens recorder window
-  - Opens library page
-  - Keyboard shortcuts (`chrome.commands`)
-  - Notification on save
+- macOS, Windows, or Linux
+- Google Chrome (latest stable)
+- Node.js 18+
+- npm 9+
 
-## Architecture
-
-- `src/popup/*` popup UI
-- `src/recorder/*` recorder UI + recording pipeline
-- `src/library/*` local library + trim/editor-lite
-- `src/background/index.ts` message routing + window/tab management
-- `src/shared/*` settings, IndexedDB, media helpers, types
-
-## Run
+## Quick Start (Development)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Load unpacked extension from `.output/chrome-mv3-dev` in `chrome://extensions`.
+Then load extension in Chrome:
 
-## Build
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked**
+4. Select `.output/chrome-mv3-dev`
+
+## Build (Production)
 
 ```bash
-npm run typecheck
 npm run build
 ```
 
-Production output in `dist/`.
+Build output is generated in `dist/`.
 
-## CI/CD
+To test production build in Chrome:
 
-- Workflow: `.github/workflows/release-on-main.yml`
-- Trigger: push to `main`
-- Pipeline: `npm ci` -> `npm run typecheck` -> `npm run build`
-- CD: creates GitHub Release with tag `v<package-version>-build.<run-number>`
-- Asset: zipped extension bundle from `dist/`
-- PR CI workflow: `.github/workflows/ci-pr.yml` (runs checks on pull requests to `main`, no release)
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked**
+4. Select `dist`
 
-## Current scope vs long plan
+## How to Use
 
-This repo now covers Phase 1 + core Phase 2 + part of Phase 3.
-Not implemented yet:
+1. Click extension icon in Chrome toolbar
+2. Choose recording settings (camera, microphone, system audio)
+3. Click **Start Recording**
+4. Select tab/window/screen in Chrome share picker
+5. Use recorder controls: pause, resume, stop, cancel
+6. Export from recorder or open library for playback, trim, rename, delete, export
 
-- Split/merge timeline editor
-- MP4 export via ffmpeg.wasm
-- Offscreen document worker pipeline
-- File System Access API save directory mode
-- OCR blur/watermark
-- Post-edit audio track mixing
-- Automated tests (Vitest/Playwright)
+## Keyboard Shortcuts
+
+- Start recorder: `Command+Shift+R` (macOS) / `Ctrl+Shift+R` (Windows/Linux)
+- Open library: `Command+Shift+L` (macOS) / `Ctrl+Shift+L` (Windows/Linux)
+
+You can customize shortcuts in `chrome://extensions/shortcuts`.
+
+## Project Structure
+
+- `src/popup/*` popup UI
+- `src/recorder/*` recorder UI and composition pipeline
+- `src/library/*` local recording library and trim UI
+- `src/background/index.ts` extension background service worker
+- `src/shared/*` settings, storage, media helpers, shared types
+
+## Scripts
+
+- `npm run dev` start development build/watch
+- `npm run typecheck` run TypeScript checks
+- `npm run build` typecheck and production build
+- `npm run preview` preview built assets
