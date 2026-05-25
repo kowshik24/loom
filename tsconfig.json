@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "jsx": "react-jsx",
+    "types": ["chrome"]
+  },
+  "include": ["manifest.config.ts", "vite.config.ts", "src/**/*.ts", "src/**/*.tsx"]
+}

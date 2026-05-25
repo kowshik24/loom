@@ -1,0 +1,204 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  deleteRecording,
+  duplicateRecording,
+  listRecordings,
+  putRecording,
+  renameRecording
+} from "../shared/db";
+import { createThumbnail, formatBytes, formatDuration, trimBlob } from "../shared/media";
+import type { RecordingItem } from "../shared/types";
+
+export function LibraryApp() {
+  const [items, setItems] = useState<RecordingItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string>("");
+  const [query, setQuery] = useState("");
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [selectedVideoUrl, setSelectedVideoUrl] = useState("");
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const selected = useMemo(
+    () => items.find((item) => item.id === selectedId) ?? items[0],
+    [items, selectedId]
+  );
+
+  const filtered = useMemo(() => {
+    const needle = query.toLowerCase().trim();
+    if (!needle) return items;
+    return items.filter((item) => item.title.toLowerCase().includes(needle));
+  }, [items, query]);
+
+  useEffect(() => {
+    if (selected && !selectedId) {
+      setSelectedId(selected.id);
+    }
+  }, [selected, selectedId]);
+
+  useEffect(() => {
+    if (!selected) {
+      setSelectedVideoUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(selected.blob);
+    setSelectedVideoUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [selected]);
+
+  async function refresh() {
+    const rows = await listRecordings();
+    setItems(rows);
+    if (!selectedId && rows[0]) {
+      setSelectedId(rows[0].id);
+    }
+  }
+
+  async function exportSelected() {
+    if (!selected) return;
+    const url = URL.createObjectURL(selected.blob);
+    await chrome.downloads.download({
+      url,
+      filename: `LocalLoom/${selected.title}.webm`,
+      saveAs: true
+    });
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  }
+
+  async function renameSelected() {
+    if (!selected) return;
+    const next = prompt("Rename recording", selected.title);
+    if (!next || next === selected.title) return;
+    await renameRecording(selected.id, next.trim());
+    await refresh();
+  }
+
+  async function deleteSelected() {
+    if (!selected) return;
+    const confirmed = confirm(`Delete recording \"${selected.title}\"?`);
+    if (!confirmed) return;
+    await deleteRecording(selected.id);
+    setSelectedId("");
+    await refresh();
+  }
+
+  async function duplicateSelected() {
+    if (!selected) return;
+    await duplicateRecording(selected.id);
+    await refresh();
+  }
+
+  async function trimSelected() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const trimmedBlob = await trimBlob(selected.blob, trimStart, trimEnd);
+      const thumb = await createThumbnail(trimmedBlob);
+      const updated: RecordingItem = {
+        ...selected,
+        blob: trimmedBlob,
+        size: trimmedBlob.size,
+        duration: Math.max(selected.duration - trimStart - trimEnd, 0.1),
+        thumbnailDataUrl: thumb
+      };
+      await putRecording(updated);
+      setTrimStart(0);
+      setTrimEnd(0);
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="library-page">
+      <header>
+        <h1>LocalLoom Library</h1>
+        <div>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search recordings"
+          />
+        </div>
+      </header>
+
+      <section className="layout">
+        <aside>
+          {filtered.length === 0 && <p className="muted">No recordings yet.</p>}
+          {filtered.map((item) => (
+            <button
+              key={item.id}
+              className={`record-card ${selected?.id === item.id ? "active" : ""}`}
+              onClick={() => setSelectedId(item.id)}
+            >
+              <img src={item.thumbnailDataUrl} alt={item.title} />
+              <div>
+                <strong>{item.title}</strong>
+                <p>
+                  {formatDuration(item.duration)} · {formatBytes(item.size)}
+                </p>
+              </div>
+            </button>
+          ))}
+        </aside>
+
+        <article className="viewer">
+          {!selected && <p className="muted">Select recording.</p>}
+          {selected && (
+            <>
+              <h2>{selected.title}</h2>
+              <video controls src={selectedVideoUrl} />
+              <p className="meta">
+                {new Date(selected.createdAt).toLocaleString()} · {selected.resolution} · {formatDuration(selected.duration)}
+              </p>
+
+              <div className="actions">
+                <button onClick={exportSelected}>Export</button>
+                <button onClick={renameSelected}>Rename</button>
+                <button onClick={duplicateSelected}>Duplicate</button>
+                <button className="danger" onClick={deleteSelected}>
+                  Delete
+                </button>
+              </div>
+
+              <section className="trim-box">
+                <h3>Trim</h3>
+                <label>
+                  Cut from start: {trimStart.toFixed(1)}s
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(selected.duration - 0.1, 0)}
+                    step={0.1}
+                    value={trimStart}
+                    onChange={(e) => setTrimStart(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  Cut from end: {trimEnd.toFixed(1)}s
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(selected.duration - trimStart - 0.1, 0)}
+                    step={0.1}
+                    value={trimEnd}
+                    onChange={(e) => setTrimEnd(Number(e.target.value))}
+                  />
+                </label>
+                <button disabled={busy || trimStart + trimEnd <= 0} onClick={trimSelected}>
+                  {busy ? "Processing..." : "Apply Trim"}
+                </button>
+              </section>
+            </>
+          )}
+        </article>
+      </section>
+    </main>
+  );
+}

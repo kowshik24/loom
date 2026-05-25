@@ -1,0 +1,108 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 360px;
+  background: #0f1220;
+  color: #ecf0ff;
+}
+
+.popup {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.card {
+  border: 1px solid #293151;
+  background: #171b2f;
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+label {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+select {
+  margin-left: auto;
+  background: #0f1220;
+  color: #ecf0ff;
+  border: 1px solid #3a4268;
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.record {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #ff5f5f, #ff8b3d);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.link {
+  color: #95a5ff;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.recent-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.recent-row img {
+  width: 84px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #2c3457;
+}
+
+.recent-row p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #99a4ce;
+}
+
+.muted {
+  margin: 0;
+  color: #99a4ce;
+  font-size: 12px;
+}
